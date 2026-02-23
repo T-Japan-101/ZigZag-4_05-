@@ -1,0 +1,101 @@
+//@version=5
+indicator('ZigZag+4_05(ｼﾌﾟ,ﾊﾟﾗ追加', overlay=true, format=format.price, max_labels_count=200, max_lines_count=50)
+
+import DevLucem/ZigLib/1 as ZigZag
+
+// === パラメータ設定 ===
+Depth      = input.int(5, '深さ（Depth）', minval=1, step=1, group="ジグザグ設定")
+Deviation  = input.int(3, '偏差（Deviation）', minval=1, step=1, group="ジグザグ設定")
+Backstep   = input.int(2, 'バックステップ（Backstep）', minval=2, step=1, group="ジグザグ設定")
+
+line_thick = input.int(2, 'ラインの太さ', minval=1, maxval=4, group="ライン設定")
+line_alpha = input.int(10, "ラインの透明度", minval=0, maxval=100, group="ライン設定")
+lines      = input(0, "ライン透明度（未使用）", group="ライン設定")
+
+upcolor    = input.color(#FFB74D, '上昇ライン色', group="色設定")
+dncolor    = input.color(#00ffff, '下降ライン色', group="色設定")
+background = input(90, "背景の透明度", group="色設定")
+
+labels     = input(66, "ラベルの透明度", group="ラベル設定")
+labelSizeInput = input.int(1, "ラベルサイズ", minval=1, maxval=5, group="ラベル設定")
+labelType = input.string("ポイント名", "ラベル表示形式", options=["ポイント名", "価格", "ポイント名＋価格"], group="ラベル設定")
+labelShape = input.string("三角UP", "ラベル形状", options=["三角UP", "三角Down", "四角", "ひし形", "旗", "なし"], group="ラベル設定")
+uplabelcolor = input.color(color.new(#FFB74D, 10), '上昇ラベル色', group="ラベル設定")
+dnlabelcolor = input.color(color.new(#00ffff, 10), '下降ラベル色', group="ラベル設定")
+
+// ★★★ フォント色設定 ★★★
+upfontcolor = input.color(color.white, "上昇ラベル文字色", group="ラベル設定")
+dnfontcolor = input.color(color.white, "下降ラベル文字色", group="ラベル設定")
+
+label_size = labelSizeInput == 1 ? size.tiny :
+             labelSizeInput == 2 ? size.small :
+             labelSizeInput == 3 ? size.normal :
+             labelSizeInput == 4 ? size.large :
+             size.huge
+
+repaint = input(true, 'レベル再描画')
+extend  = input(false, "ジグザグ延長", group="ライン設定")
+
+// === ZigZag 本体処理 ===
+[direction, z1, z2] = ZigZag.zigzag(low, high, Depth, Deviation, Backstep)
+var float lastPoint = na
+string nowPoint = ""
+if ta.change(direction)
+    lastPoint := z1.price[1]
+
+line zz = na
+label point = na
+
+string labelText = ""
+labelStyle = labelShape == "四角"        ? label.style_square :
+             labelShape == "ひし形"      ? label.style_diamond :
+             labelShape == "旗"        ? label.style_flag :
+             labelShape == "なし"        ? label.style_none :
+             labelShape == "三角UP"    ? (direction > 0 ? label.style_label_down : label.style_label_up) :
+             labelShape == "三角Down"  ? (direction > 0 ? label.style_label_up : label.style_label_down) :
+             label.style_label_up
+
+if repaint
+    nowPoint := direction < 0 ? (z2.price < lastPoint ? "LL" : "HL") : (z2.price > lastPoint ? "HH" : "LH")
+    labelText := labelType == "価格" ? str.tostring(z2.price) :
+                 labelType == "ポイント名＋価格" ? nowPoint + " " + str.tostring(z2.price) :
+                 nowPoint
+    lineColor = direction > 0 ? color.new(upcolor, line_alpha) : color.new(dncolor, line_alpha)
+    zz := line.new(z1, z2, xloc.bar_time, extend ? extend.right : extend.none, lineColor, width=line_thick)
+
+    // ★ 修正1：x=z2.time, y=z2.price
+    point := label.new(x=z2.time, y=z2.price, text=labelText, xloc=xloc.bar_time, yloc=yloc.price, color=direction < 0 ? dnlabelcolor : uplabelcolor, style=labelStyle, textcolor=direction < 0 ? dnfontcolor : upfontcolor, size=label_size)
+
+    if direction == direction[1]
+        line.delete(zz[1])
+        label.delete(point[1])
+    else
+        line.set_extend(zz[1], extend.none)
+
+else
+    if direction != direction[1]
+        nowPoint := direction[1] < 0 ? (z2.price[1] < lastPoint[1] ? "LL" : "HL") : (z2.price[1] > lastPoint[1] ? "HH" : "LH")
+        labelText := labelType == "価格" ? str.tostring(z2.price[1]) :
+                     labelType == "ポイント名＋価格" ? nowPoint + " " + str.tostring(z2.price[1]) :
+                     nowPoint
+
+        lineColor = direction[1] > 0 ? color.new(upcolor, line_alpha) : color.new(dncolor, line_alpha)
+        zz := line.new(z1[1], z2[1], xloc.bar_time, extend.none, lineColor, width=line_thick)
+
+        // ★ 修正2：z2.time[1], z2.price[1] に修正
+        point := label.new(x=z2.time[1], y=z2.price[1], text=labelText, xloc=xloc.bar_time, yloc=yloc.price, color=direction[1] < 0 ? dnlabelcolor : uplabelcolor, style=labelStyle, textcolor=direction[1] < 0 ? dnfontcolor : upfontcolor, size=label_size)
+
+// === アラート条件 ===
+alertcondition(nowPoint == "HH" and z2.price != z2.price[1], "新・高値（HH）", 'Zigzag: 高値更新 on {{ticker}} at {{time}}')
+alertcondition(nowPoint == "LH" and z2.price != z2.price[1], "戻り高値（LH）", 'Zigzag: 戻り高値 on {{ticker}} at {{time}}')
+alertcondition(nowPoint == "HL" and z2.price != z2.price[1], "押し安値（HL）", 'Zigzag: 押し安値 on {{ticker}} at {{time}}')
+alertcondition(nowPoint == "LL" and z2.price != z2.price[1], "新・安値（LL）", 'Zigzag: 安値更新 on {{ticker}} at {{time}}')
+alertcondition(direction != direction[1], '方向転換', 'Zigzag: 方向転換 on {{ticker}} at {{time}}')
+alertcondition(direction != direction[1] and direction > 0, '上昇方向開始', 'Zigzag: 上昇開始 on {{ticker}} at {{time}}')
+alertcondition(direction != direction[1] and direction < 0, '下降方向開始', 'Zigzag: 下降開始 on {{ticker}} at {{time}}')
+
+if direction != direction[1]
+    alert(message=(direction < 0 ? "下降方向確定" : "上昇方向確定") + " - ZigZag", freq=alert.freq_once_per_bar_close)
+
+
+
